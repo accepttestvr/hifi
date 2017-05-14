@@ -132,6 +132,10 @@ class MyAvatar : public Avatar {
     Q_PROPERTY(bool characterControllerEnabled READ getCharacterControllerEnabled WRITE setCharacterControllerEnabled)
     Q_PROPERTY(bool useAdvancedMovementControls READ useAdvancedMovementControls WRITE setUseAdvancedMovementControls)
 
+    Q_PROPERTY(bool useHMDRollControl READ getUseHMDRollControl WRITE setUseHMDRollControl)
+    Q_PROPERTY(float rollControlDeadZone READ getRollControlDeadZone WRITE setRollControlDeadZone)
+    Q_PROPERTY(float rollControlSpeed READ getRollControlSpeed WRITE setRollControlSpeed)
+
 public:
     enum DriveKeys {
         TRANSLATE_X = 0,
@@ -495,6 +499,30 @@ public:
     // results are in HMD frame
     glm::mat4 deriveBodyFromHMDSensor() const;
 
+    void setUseHMDRollControl(bool value) {
+        _useHMDRollControl = value;
+    }
+
+    bool getUseHMDRollControl() const {
+        return _useHMDRollControl;
+    }
+
+    void setRollControlDeadZone(float value) {
+        _rollControlDeadZone = value;
+    }
+
+    float getRollControlDeadZone() const {
+        return _rollControlDeadZone;
+    }
+
+    void setRollControlSpeed(float value) {
+        rollControlSpeed = value;
+    }
+
+    float getRollControlSpeed() const {
+        return _rollControlSpeed;
+    }
+
 public slots:
     void increaseSize();
     void decreaseSize();
@@ -605,6 +633,10 @@ private:
     float _boomLength { ZOOM_DEFAULT };
     float _yawSpeed; // degrees/sec
     float _pitchSpeed; // degrees/sec
+
+	bool _useHMDRollControl;
+	float _rollControlDeadZone; // deg
+	float _rollControlSpeed; // deg/sec
 
     glm::vec3 _thrust { 0.0f };  // impulse accumulator for outside sources
 

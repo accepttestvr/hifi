@@ -71,6 +71,9 @@ const float MIN_AVATAR_SPEED_SQUARED = MIN_AVATAR_SPEED * MIN_AVATAR_SPEED; // s
 const float YAW_SPEED_DEFAULT = 120.0f;   // degrees/sec
 const float PITCH_SPEED_DEFAULT = 90.0f; // degrees/sec
 
+const float ROLL_CONTROL_DEAD_ZONE_DEFAULT = 35.0f; // deg
+const float ROLL_CONTROL_SPEED_DEFAULT = 2.0f; // deg/sec
+
 // TODO: normalize avatar speed for standard avatar size, then scale all motion logic
 // to properly follow avatar size.
 float MAX_AVATAR_SPEED = 30.0f;
@@ -102,6 +105,9 @@ MyAvatar::MyAvatar(QThread* thread, RigPointer rig) :
     Avatar(thread, rig),
     _yawSpeed(YAW_SPEED_DEFAULT),
     _pitchSpeed(PITCH_SPEED_DEFAULT),
+    _useHMDRollControl(true),
+    _rollControlDeadZone(ROLL_CONTROL_DEAD_ZONE_DEFAULT),
+    _rollControlSpeed(ROLL_CONTROL_SPEED_DEFAULT),
     _scriptedMotorTimescale(DEFAULT_SCRIPTED_MOTOR_TIMESCALE),
     _scriptedMotorFrame(SCRIPTED_MOTOR_CAMERA_FRAME),
     _motionBehaviors(AVATAR_MOTION_DEFAULTS),
@@ -673,7 +679,7 @@ void MyAvatar::updateFromTrackers(float deltaTime) {
     }
 
     //  Rotate the body if the head is turned beyond the screen
-    if (Menu::getInstance()->isOptionChecked(MenuOption::TurnWithHead)) {
+    if (!_useHMDRollControl && Menu::getInstance()->isOptionChecked(MenuOption::TurnWithHead)) {
         const float TRACKER_YAW_TURN_SENSITIVITY = 0.5f;
         const float TRACKER_MIN_YAW_TURN = 15.0f;
         const float TRACKER_MAX_YAW_TURN = 50.0f;
@@ -1453,14 +1459,15 @@ void MyAvatar::updateMotors() {
     _characterController.clearMotors();
     glm::quat motorRotation;
     if (_motionBehaviors & AVATAR_MOTION_ACTION_MOTOR_ENABLED) {
+        glm::quat actionOrientation = _useHMDRollControl ? getOrientation() : getMyHead()->getCameraOrientation();
         if (_characterController.getState() == CharacterController::State::Hover ||
                 _characterController.computeCollisionGroup() == BULLET_COLLISION_GROUP_COLLISIONLESS) {
-            motorRotation = getMyHead()->getCameraOrientation();
+            motorRotation = actionOrientation;
         } else {
             // non-hovering = walking: follow camera twist about vertical but not lift
             // so we decompose camera's rotation and store the twist part in motorRotation
             glm::quat liftRotation;
-            swingTwistDecomposition(getMyHead()->getCameraOrientation(), _worldUpDirection, liftRotation, motorRotation);
+            swingTwistDecomposition(actionOrientation, _worldUpDirection, liftRotation, motorRotation);
         }
         const float DEFAULT_MOTOR_TIMESCALE = 0.2f;
         const float INVALID_MOTOR_TIMESCALE = 1.0e6f;
@@ -1473,9 +1480,12 @@ void MyAvatar::updateMotors() {
         }
     }
     if (_motionBehaviors & AVATAR_MOTION_SCRIPTED_MOTOR_ENABLED) {
+        glm::quat cameraFrameOrientation = _useHMDRollControl ? getOrientation() : getMyHead()->getCameraOrientation();
+
         if (_scriptedMotorFrame == SCRIPTED_MOTOR_CAMERA_FRAME) {
-            motorRotation = getMyHead()->getCameraOrientation() * glm::angleAxis(PI, Vectors::UNIT_Y);
-        } else if (_scriptedMotorFrame == SCRIPTED_MOTOR_AVATAR_FRAME) {
+            motorRotation = cameraFrameOrientation * glm::angleAxis(PI, Vectors::UNIT_Y);
+        }
+        else if (_scriptedMotorFrame == SCRIPTED_MOTOR_AVATAR_FRAME) {
             motorRotation = getOrientation() * glm::angleAxis(PI, Vectors::UNIT_Y);
         } else {
             // world-frame
@@ -1816,8 +1826,17 @@ void MyAvatar::updateOrientation(float deltaTime) {
         totalBodyYaw += getDriveKey(STEP_YAW);
     }
 
-    // use head/HMD orientation to turn while flying
+    if (_useHMDRollControl) {
+        // Update body yaw with HMD roll angle
+        const float rollAngle = glm::degrees(safeEulerAngles(getHMDSensorOrientation()).z);
+        const float rollSign = rollAngle > 0.0f ? 1.0f : -1.0f;
+        const float absRollValue = fabsf(rollAngle);
+        float yawChangeDueRoll = absRollValue > _rollControlDeadZone ? rollSign * (absRollValue - _rollControlDeadZone) : 0.0f;
+        totalBodyYaw += yawChangeDueRoll * deltaTime * _rollControlSpeed;
+    }
+    else
     if (getCharacterController()->getState() == CharacterController::State::Hover) {
+        // use head/HMD orientation to turn while flying
 
         // This is the direction the user desires to fly in.
         glm::vec3 desiredFacing = getMyHead()->getCameraOrientation() * Vectors::UNIT_Z;
